@@ -1,0 +1,16 @@
+{
+  "name": "Dead Zone: Last Colony",
+  "short_name": "Dead Zone",
+  "description": "Build your survivor colony, recruit heroes, and defend against zombie hordes and rival raids.",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0a0a0a",
+  "theme_color": "#1a0a0a",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ],
+  "categories": ["games"],
+  "screenshots": []
+}

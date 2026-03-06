@@ -1,0 +1,4 @@
+node_modules/
+deadzone-app/
+.claude/
+*.log

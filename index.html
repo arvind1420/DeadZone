@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Dead Zone">
+  <meta name="theme-color" content="#1a0a0a">
+  <title>Dead Zone: Last Colony</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <style>
+    :root {
+      --bg-deep: #0a0a08; --bg-panel: #1a1008; --border-panel: #3a1a0a;
+      --accent-primary: #c8421a; --accent-gold: #c8921a; --accent-premium: #ffd700;
+      --accent-danger: #c8221a; --accent-success: #4a8a2a;
+      --text-primary: #e8e8e0; --text-secondary: #888880;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      width: 100%; height: 100%; background: var(--bg-deep);
+      color: var(--text-primary); font-family: 'Courier New', monospace;
+      overflow: hidden; user-select: none;
+    }
+    #app { display: flex; flex-direction: column; height: 100%; width: 100%; max-width: 600px; margin: 0 auto; position: relative; }
+    #top-bar { flex-shrink: 0; background: var(--bg-panel); border-bottom: 2px solid var(--border-panel); display: flex; flex-direction: column; z-index: 10; }
+    #resource-bar { display: flex; justify-content: space-between; align-items: center; padding: 8px 10px; font-size: 11px; font-weight: bold; }
+    .res-item { display: flex; align-items: center; gap: 4px; }
+    .res-val { color: var(--text-primary); }
+    #alert-bar { display: none; background: var(--accent-danger); color: white; text-align: center; padding: 6px; font-size: 11px; font-weight: bold; animation: pulse 2s infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.8; } }
+    #canvas-wrap { flex: 1; position: relative; display: flex; justify-content: center; align-items: center; background: #111; overflow: hidden; }
+    canvas { position: absolute; image-rendering: pixelated; max-width: 100%; max-height: 100%; box-shadow: 0 0 20px rgba(0,0,0,0.8); }
+    #nav-bar { flex-shrink: 0; height: 56px; background: var(--bg-panel); border-top: 2px solid var(--border-panel); display: flex; justify-content: space-around; align-items: center; z-index: 10; }
+    .nav-btn { flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; background: transparent; border: none; color: var(--text-secondary); font-family: inherit; font-size: 10px; cursor: pointer; }
+    .nav-btn.active { color: var(--accent-gold); background: rgba(200, 146, 26, 0.1); border-top: 2px solid var(--accent-gold); }
+    .nav-icon { font-size: 20px; margin-bottom: 2px; }
+    .modal-overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); display: none; justify-content: center; align-items: center; z-index: 100; }
+    .modal { background: var(--bg-panel); border: 2px solid var(--border-panel); border-radius: 8px; width: 90%; max-width: 320px; padding: 16px; overflow-y: auto; max-height: 90%; }
+    .modal-title { font-size: 18px; color: var(--accent-gold); margin-bottom: 12px; text-align: center; border-bottom: 1px solid var(--border-panel); padding-bottom: 8px; }
+    .btn { background: var(--border-panel); color: var(--text-primary); border: 1px solid var(--accent-gold); padding: 8px 16px; font-family: inherit; font-weight: bold; border-radius: 4px; cursor: pointer; width: 100%; margin-top: 10px; }
+    .btn:active { background: var(--accent-gold); color: #000; }
+    .btn-premium { border-color: var(--accent-premium); color: var(--accent-premium); }
+    @keyframes fadeUp { 0% { opacity: 0; transform: translate(-50%, 20px); } 20%, 80% { opacity: 1; transform: translate(-50%, 0); } 100% { opacity: 0; transform: translate(-50%, -20px); } }
+  </style>
+</head>
+<body>
+<div id="app">
+  <div id="top-bar">
+    <div id="resource-bar">
+      <div class="res-item">🍖 <span id="res-food" class="res-val">2,000</span></div>
+      <div class="res-item">⚙️ <span id="res-metal" class="res-val">1,500</span></div>
+      <div class="res-item">🔫 <span id="res-ammo" class="res-val">1,000</span></div>
+      <div class="res-item">🥫 <span id="res-rations" class="res-val">500</span></div>
+      <div class="res-item">💎 <span id="res-credits" class="res-val" style="color:var(--accent-premium)">80</span></div>
+    </div>
+    <div id="alert-bar">⚠️ ZOMBIE HERD APPROACHING!</div>
+  </div>
+  <div id="canvas-wrap"><canvas id="game-canvas"></canvas></div>
+  <div id="modal-overlay" class="modal-overlay"><div id="modal-content"></div></div>
+  <div id="nav-bar">
+    <button class="nav-btn active" data-view="base"><div class="nav-icon">🏠</div>BASE</button>
+    <button class="nav-btn" data-view="map"><div class="nav-icon">🗺️</div>MAP</button>
+    <button class="nav-btn" data-view="heroes"><div class="nav-icon">⚔️</div>HEROES</button>
+    <button class="nav-btn" data-view="research"><div class="nav-icon">🔬</div>TECH</button>
+    <button class="nav-btn" data-view="shop"><div class="nav-icon">🛒</div>SHOP</button>
+  </div>
+</div>
+<script>
+'use strict';
+const C = { CANVAS_SIZE: 480, FPS: 60, SALT: 'DZ_2026_SECURE_PAY', MAX_FREE_LV: 5, ADMIN: 'arvind1420@gmail.com', RC_KEY: 'test_LpXZdNSmjlKJwjrSAHemqzPoPZY' };
+const BD = {
+  cc: { id: 'cc', name: 'Command Center', x: 240, y: 240, w: 72, h: 78, maxLevel: 10, mhp: 2000 },
+  farm: { id: 'farm', name: 'Farm', x: 90, y: 240, w: 76, h: 58, maxLevel: 10, mhp: 500 },
+  scrap: { id: 'scrap', name: 'Scrapyard', x: 390, y: 240, w: 76, h: 58, maxLevel: 10, mhp: 500 },
+  bar: { id: 'bar', name: 'Barracks', x: 120, y: 340, w: 68, h: 62, maxLevel: 10, mhp: 800 },
+  hosp: { id: 'hosp', name: 'Hospital', x: 360, y: 130, w: 68, h: 62, maxLevel: 10, mhp: 800 },
+  work: { id: 'work', name: 'Workshop', x: 120, y: 130, w: 68, h: 62, maxLevel: 10, mhp: 800 },
+  arm: { id: 'arm', name: 'Armory', x: 360, y: 340, w: 68, h: 62, maxLevel: 10, mhp: 800 },
+  watch: { id: 'watch', name: 'Watchtower', x: 240, y: 90, w: 52, h: 72, maxLevel: 10, mhp: 1000 },
+  power: { id: 'power', name: 'Power Plant', x: 240, y: 390, w: 64, h: 58, maxLevel: 10, mhp: 800 }
+};
+const HD = {
+  gunner: { id: 'gunner', name: 'Marcus', rarity: 1, hp: 120, dmg: 22, col: '#4a6', ability: 'Bullet Storm' },
+  defender: { id: 'defender', name: 'Rena', rarity: 1, hp: 220, dmg: 12, col: '#46a', ability: 'Fortify' },
+  medic: { id: 'medic', name: 'Dr. Kim', rarity: 2, hp: 100, dmg: 10, col: '#fff', ability: 'Medkit' },
+  sniper: { id: 'sniper', name: 'Ghost', rarity: 3, hp: 90, dmg: 55, col: '#888', ability: 'Execute' },
+  commander: { id: 'commander', name: 'Col. Fox', rarity: 4, hp: 160, dmg: 20, col: '#c82', ability: 'Airstrike' }
+};
+const RD = {
+  dmg: { name: 'Weapon Mods', cost: { metal: 1000, ammo: 500 }, bonus: 0.1, desc: '+10% Hero Damage' },
+  prod: { name: 'Automation', cost: { metal: 800, food: 800 }, bonus: 0.15, desc: '+15% Resource Prod' },
+  wall: { name: 'Reinforced Steel', cost: { metal: 1500, ammo: 300 }, bonus: 50, desc: '+50 Wall Max HP' }
+};
+const ED = {
+  crawler: { hp: 40, spd: 30, dmg: 5, col: '#4a8a2a', sz: 10 },
+  runner: { hp: 20, spd: 70, dmg: 3, col: '#aa5', sz: 8 },
+  tank: { hp: 150, spd: 15, dmg: 15, col: '#252', sz: 16 },
+  spitter: { hp: 60, spd: 35, dmg: 8, col: '#48a', sz: 12 }
+};
+const SKINS = {
+  default: { name: 'Wasteland', col: '#3a2018', roof: '#5a3830' },
+  neon: { name: 'Cyberpunk', col: '#1a0a2a', roof: '#a0a' },
+  winter: { name: 'Arctic', col: '#eef', roof: '#88a' },
+  gold: { name: 'Imperial', col: '#420', roof: '#c82' }
+};
+
+let G = {
+  view: 'base', inBattle: false, gameTime: 0, pityCounter: 0,
+  res: { food: 2000, ammo: 1000, metal: 1500, credits: 80, rations: 500 },
+  resCap: { food: 5000, ammo: 3000, metal: 5000 },
+  buildings: {
+    cc: { level: 1, timer: 0, hp: 2000, mhp: 2000 }, farm: { level: 1, timer: 0, hp: 500, mhp: 500 }, scrap: { level: 1, timer: 0, hp: 500, mhp: 500 },
+    arm: { level: 0, timer: 0, hp: 800, mhp: 800 }, watch: { level: 0, timer: 0, hp: 1000, mhp: 1000 }, hosp: { level: 0, timer: 0, hp: 800, mhp: 800 },
+    bar: { level: 0, timer: 0, hp: 800, mhp: 800 }, work: { level: 0, timer: 0, hp: 800, mhp: 800 }, power: { level: 0, timer: 0, hp: 800, mhp: 800 },
+    wall: { level: 1, sections: { N: 100, S: 100, E: 100, W: 100 } }
+  },
+  heroes: [], battle: null, world: { tiles: [], missions: [] }, research: { dmg: 0, prod: 0, wall: 0 },
+  legacy: 1, day: 1, skins: { owned: ['default'], active: 'default' },
+  lastLogin: 0, consecutiveDays: 0, claimedToday: false, chat: [],
+  heat: 0, morale: 100, isNight: false, email: '', isSuper: false
+};
+
+const Security = {
+  hash(s) { let h = 0; for(let i=0; i<s.length; i++) h = (h<<5)-h+s.charCodeAt(i)|0; return h; },
+  save() { const d = JSON.stringify(G); localStorage.setItem('dz_save', d); localStorage.setItem('dz_sig', this.hash(d + C.SALT)); },
+  load() { const d = localStorage.getItem('dz_save'), s = localStorage.getItem('dz_sig'); if (!d || !s || this.hash(d + C.SALT) != s) return false; G = JSON.parse(d); return true; },
+  login(email) {
+    G.email = email; G.isSuper = (email.toLowerCase() === C.ADMIN);
+    if(G.isSuper) { G.res = { food: 999999, metal: 999999, ammo: 999999, credits: 999999, rations: 999999 }; G.skins.owned = Object.keys(SKINS); UI.toast("Welcome Creator!"); }
+    this.save(); Res.draw();
+  }
+};
+
+const BillingSys = {
+  async init() {
+    if (window.Capacitor && window.Purchases) {
+      try {
+        await window.Purchases.configure({ apiKey: C.RC_KEY });
+        UI.toast("Billing System Connected");
+      } catch (e) { console.error("RC Init Failed", e); }
+    }
+  },
+  async buy(type) {
+    if (G.isSuper) { this.grant(type); return; }
+    if (!window.Capacitor || !window.Purchases) { 
+      UI.showModal("BROWSER MODE", "Native billing is disabled in browser. Super User can test this.<br><button class='btn' onclick='BillingSys.grant(\""+type+"\")'>SIMULATE PURCHASE</button>"); 
+      return; 
+    }
+    try {
+      const offerings = await window.Purchases.getOfferings();
+      if (offerings.current !== null && offerings.current.availablePackages.length > 0) {
+        const pkg = offerings.current.availablePackages.find(p => p.identifier.includes(type));
+        if (pkg) {
+          const { customerInfo } = await window.Purchases.purchasePackage(pkg);
+          this.grant(type);
+          UI.toast("Purchase Complete!");
+        }
+      }
+    } catch (e) { UI.toast("Purchase Failed"); }
+  },
+  grant(type) {
+    if (type === 'beginner') { G.res.credits += 500; G.res.rations += 2000; }
+    if (type === 'warchest') { G.res.credits += 2500; G.res.metal += 10000; }
+    if (type === 'godmode') { G.res.credits += 10000; G.skins.owned.push('gold'); G.skins.active = 'gold'; }
+    Res.draw(); Security.save(); UI.closeModal();
+  }
+};
+
+const Assets = {
+  generateIcons() {
+    const sizes = [192, 512];
+    sizes.forEach(s => {
+      const canv = document.createElement('canvas'); canv.width = s; canv.height = s; const cx = canv.getContext('2d');
+      cx.fillStyle = '#1a0a0a'; cx.fillRect(0,0,s,s); cx.strokeStyle = '#c8921a'; cx.lineWidth = s/20; cx.strokeRect(s/10, s/10, s*0.8, s*0.8);
+      cx.fillStyle = '#c8421a'; cx.font = `bold ${s/4}px Courier New`; cx.textAlign = 'center'; cx.fillText("DEAD", s/2, s/2.2); cx.fillText("ZONE", s/2, s/1.5);
+      const link = document.createElement('a'); link.download = `icon-${s}.png`; link.href = canv.toDataURL(); link.click();
+    });
+    UI.toast("Icons generated!");
+  }
+};
+
+const Audio = {
+  ctx: null, init() { if (this.ctx) return; try { this.ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch(e){} },
+  play(f, d, v = 0.1, t = 'sine') { if (!this.ctx) return; const o = this.ctx.createOscillator(), g = this.ctx.createGain(); o.type = t; o.frequency.setValueAtTime(f, this.ctx.currentTime); g.gain.setValueAtTime(v, this.ctx.currentTime); g.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + d); o.connect(g); g.connect(this.ctx.destination); o.start(); o.stop(this.ctx.currentTime + d); },
+  ui() { this.play(880, 0.1, 0.05); }, upgrade() { this.play(440, 0.2); setTimeout(()=>this.play(660, 0.2), 100); },
+  gacha() { this.play(523, 0.1); setTimeout(()=>this.play(784, 0.3), 200); }, shoot() { this.play(2000, 0.05, 0.05, 'square'); },
+  alert() { this.play(400, 0.3, 0.1, 'square'); }, explosion() { this.play(100, 0.5, 0.2, 'sawtooth'); }
+};
+
+const Sprite = {
+  drawBuilding(ctx, id, bx, by, bw, bh, level) {
+    const x = bx-bw/2, y = by-bh/2, state = G.buildings[id], skin = SKINS[G.skins.active];
+    ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.fillRect(x+4, y+4, bw, bh);
+    ctx.fillStyle = level===0?'#222':skin.col; ctx.fillRect(x,y,bw,bh);
+    if (state.timer>0) { ctx.fillStyle='rgba(255,165,0,0.3)'; ctx.fillRect(x, y+bh*(1-state.timer/state.total), bw, bh*(state.timer/state.total)); }
+    if (state.hp<state.mhp) { ctx.fillStyle='rgba(255,0,0,0.2)'; ctx.fillRect(x, y, bw, bh*(1-state.hp/state.mhp)); }
+    ctx.strokeStyle = skin.roof; ctx.lineWidth = 2; ctx.strokeRect(x+2,y+2,bw-4,bh-4);
+    if (level>0 || state.timer>0) {
+      if (id==='cc') { ctx.fillStyle=skin.roof; ctx.fillRect(x+bw*0.2, y+bh*0.2, bw*0.6, bh*0.6); ctx.fillStyle='#c8921a'; ctx.fillRect(x+bw*0.3, y+bh*0.3, 4, 4); }
+      else if (id==='farm') { ctx.fillStyle='#4a8a2a'; for(let i=0; i<3; i++) ctx.fillRect(x+5, y+10+i*12, bw-10, 4); }
+      if (level>0) { ctx.fillStyle='#c8921a'; ctx.beginPath(); ctx.arc(x+bw-8, y+8, 8, 0, Math.PI*2); ctx.fill(); ctx.fillStyle='#000'; ctx.font='bold 9px monospace'; ctx.textAlign='center'; ctx.fillText(level, x+bw-8, y+11); }
+    } else { ctx.strokeStyle='rgba(0,150,255,0.3)'; ctx.setLineDash([2,2]); ctx.strokeRect(x,y,bw,bh); ctx.setLineDash([]); }
+  },
+  drawEnemy(ctx, e) { ctx.fillStyle = e.col; ctx.fillRect(e.x-e.sz/2, e.y-e.sz/2, e.sz, e.sz); if (e.hp < e.maxHp) { ctx.fillStyle='#f00'; ctx.fillRect(e.x-e.sz/2, e.y-e.sz/2-5, e.sz, 2); ctx.fillStyle='#0f0'; ctx.fillRect(e.x-e.sz/2, e.y-e.sz/2-5, e.sz*(e.hp/e.maxHp), 2); } }
+};
+
+const Res = {
+  update(dt) {
+    G.gameTime += dt; G.day = Math.floor(G.gameTime/60)+1;
+    G.isNight = (Math.floor(G.gameTime / 30) % 2 === 1);
+    if (Math.floor(G.gameTime) > Math.floor(G.gameTime-dt)) {
+      if(G.isSuper) G.res = { food: 999999, metal: 999999, ammo: 999999, credits: 999999, rations: 999999 };
+      let m = (1+G.research.prod*0.15)*G.legacy*(G.morale/100);
+      G.res.food += G.buildings.farm.level*0.5*m; G.res.metal += G.buildings.scrap.level*0.4*m;
+      if (G.buildings.arm.level>0) G.res.ammo += G.buildings.arm.level*0.3*m;
+      G.res.food = Math.min(G.res.food, G.resCap.food); G.res.metal = Math.min(G.res.metal, G.resCap.metal); G.res.ammo = Math.min(G.res.ammo, G.resCap.ammo);
+      G.heat = Math.max(0, G.heat - 0.1); if (Math.random() < G.heat/500) BattleSys.triggerRandom();
+      if (G.res.food <= 0) G.morale = Math.max(20, G.morale - 1); else if (G.morale < 100) G.morale++;
+      this.draw(); Security.save(); ChatSys.updateSim();
+    }
+  },
+  draw() {
+    document.getElementById('res-food').innerText = Math.floor(G.res.food).toLocaleString();
+    document.getElementById('res-metal').innerText = Math.floor(G.res.metal).toLocaleString();
+    document.getElementById('res-ammo').innerText = Math.floor(G.res.ammo).toLocaleString();
+    document.getElementById('res-rations').innerText = Math.floor(G.res.rations).toLocaleString();
+    document.getElementById('res-credits').innerText = G.res.credits.toLocaleString();
+  }
+};
+
+const Build = {
+  getUpgradeCost(id, level) {
+    const base = { cc: {f:500,m:800,a:200,t:10}, farm: {f:200,m:300,a:0,t:5}, scrap: {f:200,m:300,a:0,t:5} };
+    const b = base[id] || {f:400,m:500,a:200,t:8}; const mult = Math.pow(1.8, level);
+    let c = { food: Math.floor(b.f*mult), metal: Math.floor(b.m*mult), ammo: Math.floor(b.a*mult), time: Math.floor((b.t||10)*mult) };
+    if (level >= C.MAX_FREE_LV && !G.isSuper) { c.credits = (level - C.MAX_FREE_LV + 1) * 100; }
+    return c;
+  },
+  upgrade(id) {
+    const s = G.buildings[id]; if (s.timer>0) return;
+    const c = this.getUpgradeCost(id, s.level);
+    if (G.isSuper || (G.res.food >= c.food && G.res.metal >= c.metal && G.res.ammo >= c.ammo)) {
+      if (c.credits && G.res.credits < c.credits && !G.isSuper) { UI.showModal("PREMIUM UPGRADE", `Requires a Construction Permit (${c.credits}💎).<br><button class="btn btn-premium" onclick="UI.setView('shop')">GET CREDITS</button>`); return; }
+      if (!G.isSuper) { G.res.food -= c.food; G.res.metal -= c.metal; G.res.ammo -= c.ammo; if (c.credits) G.res.credits -= c.credits; }
+      s.timer = G.isSuper ? 1 : c.time; s.total = s.timer; G.heat += 20; Audio.ui(); UI.closeModal(); Res.draw();
+    } else UI.toast("Need resources!");
+  },
+  repair(id) { const s = G.buildings[id]; let c = Math.ceil((s.mhp-s.hp)*0.5); if (G.isSuper || G.res.metal >= c) { if(!G.isSuper) G.res.metal -= c; s.hp = s.mhp; Audio.upgrade(); Res.draw(); UI.closeModal(); } else UI.toast("Need Metal!"); },
+  update(dt) { for (let k in G.buildings) { let b = G.buildings[k]; if (b.timer > 0) { b.timer -= dt; if (b.timer <= 0) { b.timer = 0; b.level++; Audio.upgrade(); UI.toast(`${BD[k].name} Ready!`); } } } }
+};
+
+const EventSys = {
+  trigger() { if (G.inBattle || Math.random() > 0.05) return; const evs = [ { t: "STRANGER", h: "Trade 500 Food for 200 Ammo?", a: ()=>{ if(G.res.ammo>=200){G.res.ammo-=200;G.res.food+=500;} } }, { t: "SABOTAGE", h: "Zombies stole 300 Food!", a: ()=>{ G.res.food = Math.max(0, G.res.food-300); } }, { t: "MORALE", h: "Hero joke! +10 Morale.", a: ()=>{ G.morale = Math.min(100, G.morale+10); } } ]; let e = evs[Math.floor(Math.random()*evs.length)]; UI.showModal(e.t, `${e.h}<br><button class="btn" onclick="EventSys.run(${evs.indexOf(e)})">OK</button>`); },
+  run(i) { const evs = [ ()=>{ if(G.res.ammo>=200){G.res.ammo-=200;G.res.food+=500;UI.toast("Traded!");} }, ()=>{ G.res.food = Math.max(0, G.res.food-300); UI.toast("Lost food!"); }, ()=>{ G.morale = Math.min(100, G.morale+10); UI.toast("Morale up!"); } ]; evs[i](); UI.closeModal(); Res.draw(); }
+};
+
+const BattleSys = {
+  triggerRandom() { if (!G.inBattle) { UI.toast("HEAT LEVEL CRITICAL: HORDE DETECTED!"); this.start(); } },
+  start() { Audio.alert(); G.inBattle = true; G.view = 'battle'; document.getElementById('alert-bar').style.display = 'block'; G.battle = { enemies: [], projectiles: [], timer: 30 }; for(let i=0; i<15; i++) this.spawnEnemy(); },
+  spawnEnemy() { let types = Object.keys(ED), t = types[Math.floor(Math.random()*types.length)]; let d = ED[t], s = Math.floor(Math.random()*4), x = Math.random()*480, y = Math.random()*480; if (s===0) y=-20; else if (s===1) y=500; else if (s===2) x=-20; else x=500; let speed = d.spd * (G.isNight ? 1.5 : 1.0); G.battle.enemies.push({ x, y, hp: d.hp, maxHp: d.hp, speed, col: d.col, sz: d.sz, dmg: d.dmg, target: this.getNearestBuilding(x,y) }); },
+  getNearestBuilding(ex, ey) { let nearest = 'cc', minDist = 999; for(let k in BD){ let b=BD[k]; let d=Math.sqrt((b.x-ex)**2+(b.y-ey)**2); if(d<minDist && G.buildings[k].hp > 0){ minDist=d; nearest=k; } } return nearest; },
+  update(dt) {
+    if (!G.inBattle) return; let b = G.battle; b.timer -= dt; let cx = 240, cy = 240;
+    b.enemies.forEach(e => { let target = BD[e.target]; let dx = target.x-e.x, dy = target.y-e.y, dist = Math.sqrt(dx*dx+dy*dy); if (dist>20) { e.x += (dx/dist)*e.speed*dt; e.y += (dy/dist)*e.speed*dt; } else { G.buildings[e.target].hp -= e.dmg*dt; if (G.buildings[e.target].hp<=0) e.target = this.getNearestBuilding(e.x, e.y); } });
+    G.heroes.forEach(h => h.charge = Math.min(100, h.charge+5*dt));
+    if (Math.random() < 0.3 && b.enemies.length > 0) { let h = G.heroes[0], dm = (1+G.research.dmg*0.1)*(G.morale/100), t = b.enemies[0]; t.hp -= (15*(h?1+h.level*0.1:1)*dm); Audio.shoot(); b.projectiles.push({ x: 240, y: 240, tx: t.x, ty: t.y, life: 0.1 }); if (t.hp<=0) { b.enemies.shift(); G.res.rations += 15; } }
+    b.projectiles.forEach(p => p.life -= dt); b.projectiles = b.projectiles.filter(p => p.life > 0);
+    if (b.enemies.length === 0 || b.timer <= 0) this.end(true); if (G.buildings.cc.hp <= 0) this.end(false);
+  },
+  end(v) { G.inBattle = false; G.view = 'base'; document.getElementById('alert-bar').style.display = 'none'; if (v) G.res.rations += 500; else { for(let k in G.buildings) if(G.buildings[k].hp) G.buildings[k].hp *= 0.2; G.res.food *= 0.5; G.buildings.cc.hp = 100; } UI.showModal(v?"VICTORY":"COLONY BREACHED", v?"Horde repelled!":"Base heavily damaged."); Res.draw(); }
+};
+
+const ChatSys = { msgs: ["Anyone found ruins near (4,2)?", "Need metal!", "Horde detected!", "Neon skin is sick!", "Night is dangerous.", "Creator Arvind is online!"], updateSim() { if (Math.random() < 0.05) { let m = this.msgs[Math.floor(Math.random() * this.msgs.length)]; G.chat.push({ user: `User${Math.floor(Math.random()*999)}`, msg: m }); if (G.chat.length > 5) G.chat.shift(); } } };
+const DailySys = { check() { const n = Date.now(), d = 86400000; if (n-G.lastLogin > d*2) G.consecutiveDays = 0; if (n-G.lastLogin > d || G.lastLogin === 0) { G.lastLogin = n; G.consecutiveDays++; G.claimedToday = false; this.showReward(); } }, showReward() { if (G.claimedToday) return; let r = G.consecutiveDays * 100; UI.showModal("DAILY REWARD", `Day ${G.consecutiveDays} Streak!<br>Reward: ${r} Rations<br><button class="btn" onclick="DailySys.claim(${r})">CLAIM</button>`); }, claim(r) { G.res.rations += r; G.claimedToday = true; UI.toast("Claimed!"); UI.closeModal(); Res.draw(); Security.save(); } };
+const UI = {
+  showBuildingModal(id) { const b = BD[id], s = G.buildings[id], c = Build.getUpgradeCost(id, s.level); document.getElementById('modal-overlay').style.display = 'flex'; document.getElementById('modal-content').innerHTML = `<div class="modal"><div class="modal-title">${b.name}</div><div style="font-size:11px;margin-bottom:10px;">HP: ${Math.floor(s.hp)}/${BD[id].mhp}<br>Cost: 🍖${c.food} ⚙️${c.metal} 🔫${c.ammo}<br>Wait: ${c.time}s${c.credits?`<br><span style="color:var(--accent-premium)">Permit: ${c.credits} 💎</span>`:''}</div><button class="btn" onclick="Build.upgrade('${id}')">${s.level===0?'CONSTRUCT':'UPGRADE'}</button>${s.hp<BD[id].mhp?`<button class="btn" onclick="Build.repair('${id}')">REPAIR (${Math.ceil((BD[id].mhp-s.hp)*0.5)}⚙️)</button>`:''}<button class="btn" onclick="UI.closeModal()">CLOSE</button></div>`; },
+  showModal(t, h) { document.getElementById('modal-overlay').style.display = 'flex'; document.getElementById('modal-content').innerHTML = `<div class="modal"><div class="modal-title">${t}</div><div style="font-size:13px;text-align:center;margin-bottom:15px;">${h}</div><button class="btn" onclick="UI.closeModal()">OK</button></div>`; },
+  closeModal() { document.getElementById('modal-overlay').style.display = 'none'; },
+  setView(v) { document.querySelectorAll('.nav-btn').forEach(b => { b.classList.remove('active'); if(b.dataset.view === v) b.classList.add('active'); }); G.view = v; UI.closeModal(); },
+  toast(msg) { const t = document.createElement('div'); t.style.cssText = `position: absolute; bottom: 80px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.8); color: #c8921a; padding: 8px 16px; border: 1px solid #c8921a; border-radius: 20px; font-size: 12px; z-index: 1000; animation: fadeUp 2s forwards;`; t.innerText = msg; document.getElementById('app').appendChild(t); setTimeout(() => t.remove(), 2000); }
+};
+
+const Input = {
+  init() {
+    canvas.addEventListener('click', (e) => {
+      Audio.init(); const r = canvas.getBoundingClientRect(); const x = (e.clientX-r.left)/r.width*480, y = (e.clientY-r.top)/r.height*480;
+      if (G.view === 'base') { for (let k in BD) { let b = BD[k]; if (x > b.x-b.w/2 && x < b.x+b.w/2 && y > b.y-b.h/2 && y < b.y+b.h/2) { Audio.ui(); UI.showBuildingModal(k); return; } } }
+      else if (G.view === 'shop') {
+        if (y > 100 && y < 130) { if (x < 240) HeroSys.pull(1); else HeroSys.pull(10); }
+        if (y > 150 && y < 185) { if(x < 240) BillingSys.buy('beginner'); else BillingSys.buy('warchest'); }
+        if (y > 185 && y < 220) BillingSys.buy('godmode');
+        if (y > 230 && y < 260) { if (G.res.credits >= 500) { G.res.credits -= 500; G.skins.owned.push('neon'); G.skins.active = 'neon'; UI.toast("Neon Active!"); } else UI.toast("No credits!"); }
+        if (y > 300 && y < 330) BattleSys.start();
+        if (y > 340 && y < 370) { let email = prompt("Email:"); if(email) Security.login(email); }
+        if (y > 380 && y < 410 && G.isSuper) Assets.generateIcons();
+      } else if (G.view === 'map') { let c = Math.floor((x-15)/50), rw = Math.floor((y-50)/50), i = rw*9+c; if (i>=0 && i<81) { let t = G.world.tiles[i]; if (!t.scouted) { t.scouted = true; UI.toast("Scouted!"); return; } if (t.type !== 'empty' && i !== 40) UI.showModal("MISSION", `Target: ${t.type.toUpperCase()}<br><button class="btn" onclick="WorldSys.startMission(${i})">SEND HERO</button>`); } }
+      else if (G.view === 'heroes') { let c = Math.floor((x-40)/200), rw = Math.floor((y-80)/40), i = rw*2+c; if (G.heroes[i]) HeroSys.showHeroDetail(G.heroes[i].id); }
+      else if (G.view === 'battle') { if (y > 400) { let i = Math.floor((x-40)/80); HeroSys.useAbility(i); } }
+      else if (G.view === 'research') { let i = Math.floor((y-80)/80), ks = Object.keys(RD); if (i>=0 && i<ks.length) ResearchSys.start(ks[i]); }
+    });
+  }
+};
+
+const canvas = document.getElementById('game-canvas'), ctx = canvas.getContext('2d'); canvas.width = 480; canvas.height = 480;
+function resize() { const w = document.getElementById('canvas-wrap'), s = Math.min(w.clientWidth, w.clientHeight)*0.95; canvas.style.width = s+'px'; canvas.style.height = s+'px'; }
+window.addEventListener('resize', resize); resize();
+
+const Render = {
+  base() { ctx.fillStyle = '#1e1a14'; ctx.fillRect(0,0,480,480); ctx.strokeStyle = '#3a1a0a'; ctx.lineWidth = 10; ctx.strokeRect(5,5,470,470); for (let k in BD) Sprite.drawBuilding(ctx, k, BD[k].x, BD[k].y, BD[k].w, BD[k].h, G.buildings[k].level); if (G.isNight) { ctx.fillStyle = 'rgba(0,0,50,0.4)'; ctx.fillRect(0,0,480,480); } ctx.fillStyle='#fff'; ctx.font='10px monospace'; ctx.textAlign='left'; ctx.fillText(`Day ${G.day} | ${G.isNight?'NIGHT':'DAY'} | Heat: ${Math.floor(G.heat)} | Morale: ${G.morale}%`, 15, 25); },
+  battle() { this.base(); ctx.fillStyle = 'rgba(200,30,20,0.2)'; ctx.fillRect(0,0,480,480); G.battle.enemies.forEach(e => Sprite.drawEnemy(ctx, e)); G.battle.projectiles.forEach(p => { ctx.strokeStyle = '#ff0'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x+(p.tx-p.x)*(1-p.life*10), p.y+(p.ty-p.y)*(1-p.life*10)); ctx.stroke(); }); ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.fillText(Math.ceil(G.battle.timer)+'s', 240, 30); G.heroes.slice(0, 5).forEach((h, i) => { let x = i*80+40, y = 440; ctx.fillStyle = h.charge>=100?'#c8921a':'#333'; ctx.fillRect(x,y,60,30); ctx.fillStyle='#fff'; ctx.font='8px monospace'; ctx.fillText(HD[h.defId].ability, x+30, y+18); ctx.fillStyle='rgba(255,255,255,0.2)'; ctx.fillRect(x,y+28,60*(h.charge/100),2); }); },
+  map() { ctx.fillStyle = '#0a0a08'; ctx.fillRect(0,0,480,480); ctx.fillStyle='#fff'; ctx.textAlign='center'; ctx.fillText('WORLD MAP', 240, 30); for(let i=0; i<81; i++) { let x=(i%9)*50+15, y=Math.floor(i/9)*50+50, t=G.world.tiles[i]; ctx.fillStyle = i===40?'#c8421a':t.scouted?(t.type==='rival'?'#c22':t.type==='ruins'?'#555':t.type==='forest'?'#4a8a2a':'#222'):'#111'; ctx.fillRect(x,y,45,45); if (t.scouted && t.type!=='empty' && i!==40) { ctx.fillStyle='#fff'; ctx.font='8px monospace'; ctx.fillText(t.type.toUpperCase(), x+22, y+25); } } },
+  research() { ctx.fillStyle='#1a1008'; ctx.fillRect(0,0,480,480); ctx.fillStyle='#c8921a'; ctx.textAlign='center'; ctx.fillText('TECH RESEARCH', 240, 40); let i=0; for(let k in RD){ let r=RD[k], lv=G.research[k], x=40, y=i*80+80; ctx.fillStyle='#3a1a0a'; ctx.fillRect(x,y,400,60); ctx.strokeStyle='#c8921a'; ctx.strokeRect(x,y,400,60); ctx.fillStyle='#fff'; ctx.textAlign='left'; ctx.fillText(`${r.name} Lv${lv}`, x+10, y+25); ctx.fillStyle='#aaa'; ctx.font='10px monospace'; ctx.fillText(r.desc, x+10, y+40); i++; } },
+  heroes() { ctx.fillStyle='#1a1008'; ctx.fillRect(0,0,480,480); ctx.fillStyle='#c8921a'; ctx.textAlign='center'; ctx.fillText('HERO ROSTER', 240, 40); if (G.heroes.length===0) { ctx.fillStyle='#888'; ctx.fillText('No heroes recruited.', 240, 200); } else G.heroes.forEach((h, i) => { let d=HD[h.defId]; ctx.fillStyle='#fff'; ctx.textAlign='left'; ctx.fillText(`${d.name} Lv${h.level}`, (i%2)*200+40, Math.floor(i/2)*40+80); }); },
+  shop() {
+    ctx.fillStyle='#0a0a08'; ctx.fillRect(0,0,480,480); ctx.fillStyle='#ffd700'; ctx.textAlign='center'; ctx.fillText('SUPPLY DEPOT', 240, 30);
+    ctx.fillStyle='#1a1008'; ctx.fillRect(20,50,440,80); ctx.strokeStyle='#c8921a'; ctx.strokeRect(20,50,440,80); ctx.fillStyle='#fff'; ctx.fillText('HERO RECRUITMENT', 240, 70); ctx.fillStyle='#3a1a0a'; ctx.fillRect(40,80,180,30); ctx.fillRect(260,80,180,30); ctx.fillStyle='#fff'; ctx.font='10px monospace'; ctx.fillText('PULL x1 (100💎)', 130, 100); ctx.fillText('PULL x10 (900💎)', 350, 100);
+    ctx.fillStyle='#1a1008'; ctx.fillRect(20,140,440,80); ctx.strokeStyle='#ffd700'; ctx.strokeRect(20,140,440,80); ctx.fillStyle='#fff'; ctx.fillText('VALUE BUNDLES', 240, 160); ctx.fillStyle='#3a1a0a'; ctx.fillRect(40,170,180,35); ctx.fillRect(260,170,180,35); ctx.fillStyle='#fff'; ctx.font='8px monospace'; ctx.fillText('BEGINNER ($1.99)', 130, 190); ctx.fillText('WAR CHEST ($4.99)', 350, 190);
+    ctx.fillStyle='#3a1a0a'; ctx.fillRect(40,210,400,25); ctx.fillStyle='#fff'; ctx.fillText('GOD MODE ($19.99)', 240, 225);
+    ctx.fillStyle='#1a1008'; ctx.fillRect(20,240,440,50); ctx.strokeStyle='#a0a'; ctx.strokeRect(20,240,440,50); ctx.fillStyle='#fff'; ctx.fillText('UNLOCK NEON SKIN (500💎)', 240, 270);
+    ctx.fillStyle='#c8221a'; ctx.fillRect(140,300,200,30); ctx.fillStyle='#fff'; ctx.fillText('TRIGGER HORDE', 240, 320);
+    ctx.fillStyle='#333'; ctx.fillRect(140,340,200,30); ctx.fillStyle='#888'; ctx.fillText(G.isSuper?'GENERATE ICONS':'SET ACCOUNT', 240, 360);
+    ctx.fillStyle='rgba(255,255,255,0.1)'; ctx.fillRect(10, 430, 460, 40); ctx.fillStyle='#888'; ctx.textAlign='left'; ctx.font='8px monospace'; G.chat.forEach((c,i)=>ctx.fillText(`${c.user}: ${c.msg}`, 15, 440+i*10));
+  }
+};
+
+let lastTime = 0;
+function loop(t) { requestAnimationFrame(loop); let dt = (t-lastTime)/1000; if (dt>0.1) dt=0.1; lastTime=t; Res.update(dt); if (G.inBattle) BattleSys.update(dt); WorldSys.update(dt); Build.update(dt); if(Math.random()<0.001) EventSys.trigger(); if (G.view==='base') Render.base(); else if (G.view==='map') Render.map(); else if (G.view==='heroes') Render.heroes(); else if (G.view==='shop') Render.shop(); else if (G.view==='battle') Render.battle(); else if (G.view==='research') Render.research(); }
+document.querySelectorAll('.nav-btn').forEach(btn => btn.addEventListener('click', () => { Audio.ui(); document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active')); btn.classList.add('active'); G.view = btn.dataset.view; }));
+WorldSys.init(); Input.init(); BillingSys.init(); requestAnimationFrame(loop);
+</script>
+</body>
+</html>
