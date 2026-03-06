@@ -2,7 +2,7 @@
   "name": "Dead Zone: Last Colony",
   "short_name": "Dead Zone",
   "description": "Build your survivor colony, recruit heroes, and defend against zombie hordes and rival raids.",
-  "start_url": "/",
+  "start_url": "index.html",
   "display": "standalone",
   "orientation": "any",
   "background_color": "#0a0a0a",

@@ -134,31 +134,17 @@ const Security = {
 };
 
 const BillingSys = {
-  async init() {
-    if (window.Capacitor && window.Purchases) {
-      try {
-        await window.Purchases.configure({ apiKey: C.RC_KEY });
-        UI.toast("Billing System Connected");
-      } catch (e) { console.error("RC Init Failed", e); }
-    }
-  },
+  async init() { if (window.Capacitor && window.Purchases) { try { await window.Purchases.configure({ apiKey: C.RC_KEY }); UI.toast("Billing Connected"); } catch(e){} } },
   async buy(type) {
     if (G.isSuper) { this.grant(type); return; }
-    if (!window.Capacitor || !window.Purchases) { 
-      UI.showModal("BROWSER MODE", "Native billing is disabled in browser. Super User can test this.<br><button class='btn' onclick='BillingSys.grant(\""+type+"\")'>SIMULATE PURCHASE</button>"); 
-      return; 
-    }
+    if (!window.Capacitor || !window.Purchases) { UI.showModal("BROWSER MODE", "Native billing disabled. Use Super User to test.<br><button class='btn' onclick='BillingSys.grant(\""+type+"\")'>SIMULATE</button>"); return; }
     try {
       const offerings = await window.Purchases.getOfferings();
-      if (offerings.current !== null && offerings.current.availablePackages.length > 0) {
+      if (offerings.current !== null) {
         const pkg = offerings.current.availablePackages.find(p => p.identifier.includes(type));
-        if (pkg) {
-          const { customerInfo } = await window.Purchases.purchasePackage(pkg);
-          this.grant(type);
-          UI.toast("Purchase Complete!");
-        }
+        if (pkg) { await window.Purchases.purchasePackage(pkg); this.grant(type); UI.toast("Success!"); }
       }
-    } catch (e) { UI.toast("Purchase Failed"); }
+    } catch (e) { UI.toast("Cancelled"); }
   },
   grant(type) {
     if (type === 'beginner') { G.res.credits += 500; G.res.rations += 2000; }
@@ -170,8 +156,7 @@ const BillingSys = {
 
 const Assets = {
   generateIcons() {
-    const sizes = [192, 512];
-    sizes.forEach(s => {
+    [192, 512].forEach(s => {
       const canv = document.createElement('canvas'); canv.width = s; canv.height = s; const cx = canv.getContext('2d');
       cx.fillStyle = '#1a0a0a'; cx.fillRect(0,0,s,s); cx.strokeStyle = '#c8921a'; cx.lineWidth = s/20; cx.strokeRect(s/10, s/10, s*0.8, s*0.8);
       cx.fillStyle = '#c8421a'; cx.font = `bold ${s/4}px Courier New`; cx.textAlign = 'center'; cx.fillText("DEAD", s/2, s/2.2); cx.fillText("ZONE", s/2, s/1.5);
@@ -208,8 +193,7 @@ const Sprite = {
 
 const Res = {
   update(dt) {
-    G.gameTime += dt; G.day = Math.floor(G.gameTime/60)+1;
-    G.isNight = (Math.floor(G.gameTime / 30) % 2 === 1);
+    G.gameTime += dt; G.day = Math.floor(G.gameTime/60)+1; G.isNight = (Math.floor(G.gameTime / 30) % 2 === 1);
     if (Math.floor(G.gameTime) > Math.floor(G.gameTime-dt)) {
       if(G.isSuper) G.res = { food: 999999, metal: 999999, ammo: 999999, credits: 999999, rations: 999999 };
       let m = (1+G.research.prod*0.15)*G.legacy*(G.morale/100);
@@ -235,14 +219,14 @@ const Build = {
     const base = { cc: {f:500,m:800,a:200,t:10}, farm: {f:200,m:300,a:0,t:5}, scrap: {f:200,m:300,a:0,t:5} };
     const b = base[id] || {f:400,m:500,a:200,t:8}; const mult = Math.pow(1.8, level);
     let c = { food: Math.floor(b.f*mult), metal: Math.floor(b.m*mult), ammo: Math.floor(b.a*mult), time: Math.floor((b.t||10)*mult) };
-    if (level >= C.MAX_FREE_LV && !G.isSuper) { c.credits = (level - C.MAX_FREE_LV + 1) * 100; }
+    if (level >= C.MAX_FREE_LV && !G.isSuper) c.credits = (level - C.MAX_FREE_LV + 1) * 100;
     return c;
   },
   upgrade(id) {
     const s = G.buildings[id]; if (s.timer>0) return;
     const c = this.getUpgradeCost(id, s.level);
     if (G.isSuper || (G.res.food >= c.food && G.res.metal >= c.metal && G.res.ammo >= c.ammo)) {
-      if (c.credits && G.res.credits < c.credits && !G.isSuper) { UI.showModal("PREMIUM UPGRADE", `Requires a Construction Permit (${c.credits}💎).<br><button class="btn btn-premium" onclick="UI.setView('shop')">GET CREDITS</button>`); return; }
+      if (c.credits && G.res.credits < c.credits && !G.isSuper) { UI.showModal("PERMIT REQUIRED", `Level 6+ requires Credits (${c.credits}💎).<br><button class="btn btn-premium" onclick="UI.setView('shop')">SHOP</button>`); return; }
       if (!G.isSuper) { G.res.food -= c.food; G.res.metal -= c.metal; G.res.ammo -= c.ammo; if (c.credits) G.res.credits -= c.credits; }
       s.timer = G.isSuper ? 1 : c.time; s.total = s.timer; G.heat += 20; Audio.ui(); UI.closeModal(); Res.draw();
     } else UI.toast("Need resources!");
@@ -252,12 +236,12 @@ const Build = {
 };
 
 const EventSys = {
-  trigger() { if (G.inBattle || Math.random() > 0.05) return; const evs = [ { t: "STRANGER", h: "Trade 500 Food for 200 Ammo?", a: ()=>{ if(G.res.ammo>=200){G.res.ammo-=200;G.res.food+=500;} } }, { t: "SABOTAGE", h: "Zombies stole 300 Food!", a: ()=>{ G.res.food = Math.max(0, G.res.food-300); } }, { t: "MORALE", h: "Hero joke! +10 Morale.", a: ()=>{ G.morale = Math.min(100, G.morale+10); } } ]; let e = evs[Math.floor(Math.random()*evs.length)]; UI.showModal(e.t, `${e.h}<br><button class="btn" onclick="EventSys.run(${evs.indexOf(e)})">OK</button>`); },
+  trigger() { if (G.inBattle || Math.random() > 0.05) return; const evs = [ { t: "STRANGER", h: "Trade 500 Food for 200 Ammo?", a: ()=>{ if(G.res.ammo>=200){G.res.ammo-=200;G.res.food+=500;} } }, { t: "SABOTAGE", h: "Zombies stole 300 Food!", a: ()=>{ G.res.food = Math.max(0, G.res.food-300); } }, { t: "JOKE", h: "Hero joke! +10 Morale.", a: ()=>{ G.morale = Math.min(100, G.morale+10); } } ]; let e = evs[Math.floor(Math.random()*evs.length)]; UI.showModal(e.t, `${e.h}<br><button class="btn" onclick="EventSys.run(${evs.indexOf(e)})">OK</button>`); },
   run(i) { const evs = [ ()=>{ if(G.res.ammo>=200){G.res.ammo-=200;G.res.food+=500;UI.toast("Traded!");} }, ()=>{ G.res.food = Math.max(0, G.res.food-300); UI.toast("Lost food!"); }, ()=>{ G.morale = Math.min(100, G.morale+10); UI.toast("Morale up!"); } ]; evs[i](); UI.closeModal(); Res.draw(); }
 };
 
 const BattleSys = {
-  triggerRandom() { if (!G.inBattle) { UI.toast("HEAT LEVEL CRITICAL: HORDE DETECTED!"); this.start(); } },
+  triggerRandom() { if (!G.inBattle) { UI.toast("HORDE DETECTED!"); this.start(); } },
   start() { Audio.alert(); G.inBattle = true; G.view = 'battle'; document.getElementById('alert-bar').style.display = 'block'; G.battle = { enemies: [], projectiles: [], timer: 30 }; for(let i=0; i<15; i++) this.spawnEnemy(); },
   spawnEnemy() { let types = Object.keys(ED), t = types[Math.floor(Math.random()*types.length)]; let d = ED[t], s = Math.floor(Math.random()*4), x = Math.random()*480, y = Math.random()*480; if (s===0) y=-20; else if (s===1) y=500; else if (s===2) x=-20; else x=500; let speed = d.spd * (G.isNight ? 1.5 : 1.0); G.battle.enemies.push({ x, y, hp: d.hp, maxHp: d.hp, speed, col: d.col, sz: d.sz, dmg: d.dmg, target: this.getNearestBuilding(x,y) }); },
   getNearestBuilding(ex, ey) { let nearest = 'cc', minDist = 999; for(let k in BD){ let b=BD[k]; let d=Math.sqrt((b.x-ex)**2+(b.y-ey)**2); if(d<minDist && G.buildings[k].hp > 0){ minDist=d; nearest=k; } } return nearest; },
@@ -328,6 +312,7 @@ const Render = {
 let lastTime = 0;
 function loop(t) { requestAnimationFrame(loop); let dt = (t-lastTime)/1000; if (dt>0.1) dt=0.1; lastTime=t; Res.update(dt); if (G.inBattle) BattleSys.update(dt); WorldSys.update(dt); Build.update(dt); if(Math.random()<0.001) EventSys.trigger(); if (G.view==='base') Render.base(); else if (G.view==='map') Render.map(); else if (G.view==='heroes') Render.heroes(); else if (G.view==='shop') Render.shop(); else if (G.view==='battle') Render.battle(); else if (G.view==='research') Render.research(); }
 document.querySelectorAll('.nav-btn').forEach(btn => btn.addEventListener('click', () => { Audio.ui(); document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active')); btn.classList.add('active'); G.view = btn.dataset.view; }));
+if ('serviceWorker' in navigator) { window.addEventListener('load', () => { navigator.serviceWorker.register('./sw.js').catch(err => { console.log('SW failed: ', err); }); }); }
 WorldSys.init(); Input.init(); BillingSys.init(); requestAnimationFrame(loop);
 </script>
 </body>
