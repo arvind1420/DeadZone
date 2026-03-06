@@ -23,15 +23,15 @@
       color: var(--text-primary); font-family: 'Courier New', monospace;
       overflow: hidden; user-select: none;
     }
-    #app { display: flex; flex-direction: column; height: 100%; width: 100%; max-width: 600px; margin: 0 auto; position: relative; }
-    #top-bar { flex-shrink: 0; background: var(--bg-panel); border-bottom: 2px solid var(--border-panel); display: flex; flex-direction: column; z-index: 10; }
+    #app { display: flex; flex-direction: column; height: 100%; width: 100%; max-width: 600px; margin: 0 auto; position: relative; background: #000; }
+    #top-bar { flex-shrink: 0; background: var(--bg-panel); border-bottom: 2px solid var(--border-panel); display: flex; flex-direction: column; z-index: 10; min-height: 40px; }
     #resource-bar { display: flex; justify-content: space-between; align-items: center; padding: 8px 10px; font-size: 11px; font-weight: bold; }
     .res-item { display: flex; align-items: center; gap: 4px; }
     .res-val { color: var(--text-primary); }
     #alert-bar { display: none; background: var(--accent-danger); color: white; text-align: center; padding: 6px; font-size: 11px; font-weight: bold; animation: pulse 2s infinite; }
     @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.8; } }
-    #canvas-wrap { flex: 1; position: relative; display: flex; justify-content: center; align-items: center; background: #111; overflow: hidden; }
-    canvas { position: absolute; image-rendering: pixelated; max-width: 100%; max-height: 100%; box-shadow: 0 0 20px rgba(0,0,0,0.8); }
+    #canvas-wrap { flex: 1; position: relative; display: flex; justify-content: center; align-items: center; background: #111; width: 100%; min-height: 200px; overflow: hidden; }
+    canvas { background: #1e1a14; image-rendering: pixelated; max-width: 100%; max-height: 100%; box-shadow: 0 0 20px rgba(0,0,0,0.8); display: block; }
     #nav-bar { flex-shrink: 0; height: 56px; background: var(--bg-panel); border-top: 2px solid var(--border-panel); display: flex; justify-content: space-around; align-items: center; z-index: 10; }
     .nav-btn { flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; background: transparent; border: none; color: var(--text-secondary); font-family: inherit; font-size: 10px; cursor: pointer; }
     .nav-btn.active { color: var(--accent-gold); background: rgba(200, 146, 26, 0.1); border-top: 2px solid var(--accent-gold); }
@@ -123,9 +123,9 @@ let G = {
 };
 
 const Security = {
-  hash(s) { let h = 0; for(let i=0; i<s.length; i++) h = (h<<5)-h+s.charCodeAt(i)|0; return h; },
+  hash(s) { let h = 0; if(!s) return h; for(let i=0; i<s.length; i++) h = (h<<5)-h+s.charCodeAt(i)|0; return h; },
   save() { const d = JSON.stringify(G); localStorage.setItem('dz_save', d); localStorage.setItem('dz_sig', this.hash(d + C.SALT)); },
-  load() { const d = localStorage.getItem('dz_save'), s = localStorage.getItem('dz_sig'); if (!d || !s || this.hash(d + C.SALT) != s) return false; G = JSON.parse(d); return true; },
+  load() { const d = localStorage.getItem('dz_save'), s = localStorage.getItem('dz_sig'); if (!d || !s || this.hash(d + C.SALT) != s) return false; try { G = JSON.parse(d); return true; } catch(e){ return false; } },
   login(email) {
     G.email = email; G.isSuper = (email.toLowerCase() === C.ADMIN);
     if(G.isSuper) { G.res = { food: 999999, metal: 999999, ammo: 999999, credits: 999999, rations: 999999 }; G.skins.owned = Object.keys(SKINS); UI.toast("Welcome Creator!"); }
@@ -134,15 +134,15 @@ const Security = {
 };
 
 const BillingSys = {
-  async init() { if (window.Capacitor && window.Purchases) { try { await window.Purchases.configure({ apiKey: C.RC_KEY }); UI.toast("Billing Connected"); } catch(e){} } },
+  async init() { if (window.Capacitor && window.Purchases) { try { await window.Purchases.configure({ apiKey: C.RC_KEY }); } catch(e){} } },
   async buy(type) {
     if (G.isSuper) { this.grant(type); return; }
-    if (!window.Capacitor || !window.Purchases) { UI.showModal("BROWSER MODE", "Native billing disabled. Use Super User to test.<br><button class='btn' onclick='BillingSys.grant(\""+type+"\")'>SIMULATE</button>"); return; }
+    if (!window.Capacitor) { UI.showModal("BROWSER MODE", "Billing simulated.<br><button class='btn' onclick='BillingSys.grant(\""+type+"\")'>SIMULATE</button>"); return; }
     try {
       const offerings = await window.Purchases.getOfferings();
-      if (offerings.current !== null) {
+      if (offerings.current) {
         const pkg = offerings.current.availablePackages.find(p => p.identifier.includes(type));
-        if (pkg) { await window.Purchases.purchasePackage(pkg); this.grant(type); UI.toast("Success!"); }
+        if (pkg) { await window.Purchases.purchasePackage(pkg); this.grant(type); }
       }
     } catch (e) { UI.toast("Cancelled"); }
   },
@@ -162,13 +162,12 @@ const Assets = {
       cx.fillStyle = '#c8421a'; cx.font = `bold ${s/4}px Courier New`; cx.textAlign = 'center'; cx.fillText("DEAD", s/2, s/2.2); cx.fillText("ZONE", s/2, s/1.5);
       const link = document.createElement('a'); link.download = `icon-${s}.png`; link.href = canv.toDataURL(); link.click();
     });
-    UI.toast("Icons generated!");
   }
 };
 
 const Audio = {
   ctx: null, init() { if (this.ctx) return; try { this.ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch(e){} },
-  play(f, d, v = 0.1, t = 'sine') { if (!this.ctx) return; const o = this.ctx.createOscillator(), g = this.ctx.createGain(); o.type = t; o.frequency.setValueAtTime(f, this.ctx.currentTime); g.gain.setValueAtTime(v, this.ctx.currentTime); g.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + d); o.connect(g); g.connect(this.ctx.destination); o.start(); o.stop(this.ctx.currentTime + d); },
+  play(f, d, v = 0.1, t = 'sine') { if (!this.ctx) return; try { const o = this.ctx.createOscillator(), g = this.ctx.createGain(); o.type = t; o.frequency.setValueAtTime(f, this.ctx.currentTime); g.gain.setValueAtTime(v, this.ctx.currentTime); g.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + d); o.connect(g); g.connect(this.ctx.destination); o.start(); o.stop(this.ctx.currentTime + d); } catch(e){} },
   ui() { this.play(880, 0.1, 0.05); }, upgrade() { this.play(440, 0.2); setTimeout(()=>this.play(660, 0.2), 100); },
   gacha() { this.play(523, 0.1); setTimeout(()=>this.play(784, 0.3), 200); }, shoot() { this.play(2000, 0.05, 0.05, 'square'); },
   alert() { this.play(400, 0.3, 0.1, 'square'); }, explosion() { this.play(100, 0.5, 0.2, 'sawtooth'); }
@@ -176,7 +175,7 @@ const Audio = {
 
 const Sprite = {
   drawBuilding(ctx, id, bx, by, bw, bh, level) {
-    const x = bx-bw/2, y = by-bh/2, state = G.buildings[id], skin = SKINS[G.skins.active];
+    const x = bx-bw/2, y = by-bh/2, state = G.buildings[id], skin = SKINS[G.skins.active] || SKINS.default;
     ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.fillRect(x+4, y+4, bw, bh);
     ctx.fillStyle = level===0?'#222':skin.col; ctx.fillRect(x,y,bw,bh);
     if (state.timer>0) { ctx.fillStyle='rgba(255,165,0,0.3)'; ctx.fillRect(x, y+bh*(1-state.timer/state.total), bw, bh*(state.timer/state.total)); }
@@ -206,11 +205,13 @@ const Res = {
     }
   },
   draw() {
-    document.getElementById('res-food').innerText = Math.floor(G.res.food).toLocaleString();
-    document.getElementById('res-metal').innerText = Math.floor(G.res.metal).toLocaleString();
-    document.getElementById('res-ammo').innerText = Math.floor(G.res.ammo).toLocaleString();
-    document.getElementById('res-rations').innerText = Math.floor(G.res.rations).toLocaleString();
-    document.getElementById('res-credits').innerText = G.res.credits.toLocaleString();
+    try {
+      document.getElementById('res-food').innerText = Math.floor(G.res.food).toLocaleString();
+      document.getElementById('res-metal').innerText = Math.floor(G.res.metal).toLocaleString();
+      document.getElementById('res-ammo').innerText = Math.floor(G.res.ammo).toLocaleString();
+      document.getElementById('res-rations').innerText = Math.floor(G.res.rations).toLocaleString();
+      document.getElementById('res-credits').innerText = G.res.credits.toLocaleString();
+    } catch(e){}
   }
 };
 
@@ -231,13 +232,38 @@ const Build = {
       s.timer = G.isSuper ? 1 : c.time; s.total = s.timer; G.heat += 20; Audio.ui(); UI.closeModal(); Res.draw();
     } else UI.toast("Need resources!");
   },
-  repair(id) { const s = G.buildings[id]; let c = Math.ceil((s.mhp-s.hp)*0.5); if (G.isSuper || G.res.metal >= c) { if(!G.isSuper) G.res.metal -= c; s.hp = s.mhp; Audio.upgrade(); Res.draw(); UI.closeModal(); } else UI.toast("Need Metal!"); },
+  repair(id) { const s = G.buildings[id]; let c = Math.ceil((BD[id].mhp-s.hp)*0.5); if (G.isSuper || G.res.metal >= c) { if(!G.isSuper) G.res.metal -= c; s.hp = BD[id].mhp; Audio.upgrade(); Res.draw(); UI.closeModal(); } else UI.toast("Need Metal!"); },
   update(dt) { for (let k in G.buildings) { let b = G.buildings[k]; if (b.timer > 0) { b.timer -= dt; if (b.timer <= 0) { b.timer = 0; b.level++; Audio.upgrade(); UI.toast(`${BD[k].name} Ready!`); } } } }
 };
 
+const WorldSys = {
+  init() { 
+    if (Security.load()) return;
+    for(let i=0; i<81; i++) {
+      let type = i===40?'base':Math.random()<0.1?'rival':Math.random()<0.2?'ruins':Math.random()<0.4?'forest':'empty';
+      G.world.tiles.push({ id: i, type, scouted: i===40 });
+    }
+  },
+  startMission(tileIdx) {
+    if (G.heroes.length === 0) { UI.toast("No heroes!"); return; }
+    let hero = G.heroes.find(h => !G.world.missions.some(m => m.heroId === h.id));
+    if (!hero) { UI.toast("Busy!"); return; }
+    G.world.missions.push({ heroId: hero.id, tileIdx, endTime: G.gameTime + 30, type: G.world.tiles[tileIdx].type });
+    UI.toast("Sent!"); UI.closeModal();
+  },
+  update(dt) {
+    for(let i=G.world.missions.length-1; i>=0; i--) {
+      let m = G.world.missions[i]; if (G.gameTime >= m.endTime) {
+        let reward = m.type==='ruins'?{metal:500}:m.type==='forest'?{food:500}:m.type==='rival'?{credits:100,rations:1000}:{rations:100};
+        for(let k in reward) G.res[k] += reward[k]; UI.toast(`Done!`); G.world.missions.splice(i, 1); Res.draw();
+      }
+    }
+  }
+};
+
 const EventSys = {
-  trigger() { if (G.inBattle || Math.random() > 0.05) return; const evs = [ { t: "STRANGER", h: "Trade 500 Food for 200 Ammo?", a: ()=>{ if(G.res.ammo>=200){G.res.ammo-=200;G.res.food+=500;} } }, { t: "SABOTAGE", h: "Zombies stole 300 Food!", a: ()=>{ G.res.food = Math.max(0, G.res.food-300); } }, { t: "JOKE", h: "Hero joke! +10 Morale.", a: ()=>{ G.morale = Math.min(100, G.morale+10); } } ]; let e = evs[Math.floor(Math.random()*evs.length)]; UI.showModal(e.t, `${e.h}<br><button class="btn" onclick="EventSys.run(${evs.indexOf(e)})">OK</button>`); },
-  run(i) { const evs = [ ()=>{ if(G.res.ammo>=200){G.res.ammo-=200;G.res.food+=500;UI.toast("Traded!");} }, ()=>{ G.res.food = Math.max(0, G.res.food-300); UI.toast("Lost food!"); }, ()=>{ G.morale = Math.min(100, G.morale+10); UI.toast("Morale up!"); } ]; evs[i](); UI.closeModal(); Res.draw(); }
+  trigger() { if (G.inBattle || Math.random() > 0.05) return; const evs = [ { t: "STRANGER", h: "Trade 500 Food for 200 Ammo?", a: 0 }, { t: "SABOTAGE", h: "Zombies stole 300 Food!", a: 1 }, { t: "MORALE", h: "Hero joke! +10 Morale.", a: 2 } ]; let e = evs[Math.floor(Math.random()*evs.length)]; UI.showModal(e.t, `${e.h}<br><button class="btn" onclick="EventSys.run(${e.a})">OK</button>`); },
+  run(i) { if(i===0){if(G.res.ammo>=200){G.res.ammo-=200;G.res.food+=500;UI.toast("Traded!");}}else if(i===1){G.res.food=Math.max(0,G.res.food-300);UI.toast("Lost!");}else{G.morale=Math.min(100,G.morale+10);UI.toast("Happy!");} UI.closeModal(); Res.draw(); }
 };
 
 const BattleSys = {
@@ -253,11 +279,70 @@ const BattleSys = {
     b.projectiles.forEach(p => p.life -= dt); b.projectiles = b.projectiles.filter(p => p.life > 0);
     if (b.enemies.length === 0 || b.timer <= 0) this.end(true); if (G.buildings.cc.hp <= 0) this.end(false);
   },
-  end(v) { G.inBattle = false; G.view = 'base'; document.getElementById('alert-bar').style.display = 'none'; if (v) G.res.rations += 500; else { for(let k in G.buildings) if(G.buildings[k].hp) G.buildings[k].hp *= 0.2; G.res.food *= 0.5; G.buildings.cc.hp = 100; } UI.showModal(v?"VICTORY":"COLONY BREACHED", v?"Horde repelled!":"Base heavily damaged."); Res.draw(); }
+  end(v) { G.inBattle = false; G.view = 'base'; document.getElementById('alert-bar').style.display = 'none'; if (v) G.res.rations += 500; else { for(let k in G.buildings) if(G.buildings[k].hp) G.buildings[k].hp *= 0.2; G.res.food *= 0.5; G.buildings.cc.hp = 100; } UI.showModal(v?"VICTORY":"COLONY BREACHED", v?"Horde repelled!":"Base damaged."); Res.draw(); }
 };
 
-const ChatSys = { msgs: ["Anyone found ruins near (4,2)?", "Need metal!", "Horde detected!", "Neon skin is sick!", "Night is dangerous.", "Creator Arvind is online!"], updateSim() { if (Math.random() < 0.05) { let m = this.msgs[Math.floor(Math.random() * this.msgs.length)]; G.chat.push({ user: `User${Math.floor(Math.random()*999)}`, msg: m }); if (G.chat.length > 5) G.chat.shift(); } } };
+const ChatSys = { msgs: ["Anyone found ruins?", "Horde detected!", "Neon skin is sick!", "Arvind is online!"], updateSim() { if (Math.random() < 0.05) { let m = this.msgs[Math.floor(Math.random() * this.msgs.length)]; G.chat.push({ user: `User${Math.floor(Math.random()*999)}`, msg: m }); if (G.chat.length > 5) G.chat.shift(); } } };
 const DailySys = { check() { const n = Date.now(), d = 86400000; if (n-G.lastLogin > d*2) G.consecutiveDays = 0; if (n-G.lastLogin > d || G.lastLogin === 0) { G.lastLogin = n; G.consecutiveDays++; G.claimedToday = false; this.showReward(); } }, showReward() { if (G.claimedToday) return; let r = G.consecutiveDays * 100; UI.showModal("DAILY REWARD", `Day ${G.consecutiveDays} Streak!<br>Reward: ${r} Rations<br><button class="btn" onclick="DailySys.claim(${r})">CLAIM</button>`); }, claim(r) { G.res.rations += r; G.claimedToday = true; UI.toast("Claimed!"); UI.closeModal(); Res.draw(); Security.save(); } };
+
+const HeroSys = {
+  pull(times) {
+    let cost = times === 10 ? 900 : 100;
+    if (G.res.credits < cost) { UI.toast("Not enough Credits!"); return; }
+    G.res.credits -= cost; Res.draw(); Audio.gacha();
+    let pulls = [];
+    for(let i=0; i<times; i++) {
+      G.pityCounter++; let r = Math.random(), rarity = 1;
+      if (G.pityCounter >= 50 || r < 0.02) { rarity = 4; G.pityCounter = 0; }
+      else if (r < 0.12) rarity = 3; else if (r < 0.40) rarity = 2;
+      let pool = Object.values(HD).filter(h => h.rarity === rarity), h = pool[Math.floor(Math.random() * pool.length)];
+      G.heroes.push({ id: Date.now()+i, defId: h.id, level: 1, charge: 0 }); pulls.push(`${h.name} (${'⭐'.repeat(h.rarity)})`);
+    }
+    UI.showModal("RECRUITMENT", pulls.join('<br>'));
+  },
+  levelUp(heroId) {
+    let h = G.heroes.find(h => h.id === heroId), cost = h.level * 200;
+    if (G.res.rations >= cost) { G.res.rations -= cost; h.level++; Audio.upgrade(); Res.draw(); this.showHeroDetail(heroId); }
+    else UI.toast("Not enough Rations!");
+  },
+  showHeroDetail(id) {
+    let h = G.heroes.find(h => h.id === id), d = HD[h.defId];
+    UI.showModal(`${d.name}`, `Lv: ${h.level} | ${'⭐'.repeat(d.rarity)}<br>Skill: ${d.ability}<br>HP: ${Math.floor(d.hp*(1+h.level*0.1))} DMG: ${Math.floor(d.dmg*(1+h.level*0.1))}<br><br><button class="btn" onclick="HeroSys.levelUp(${id})">LEVEL UP (${h.level*200}🥫)</button>`);
+  },
+  useAbility(idx) {
+    if (!G.inBattle) return; let h = G.heroes[idx]; if (!h || h.charge < 100) return;
+    let d = HD[h.defId]; h.charge = 0; Audio.explosion();
+    if (d.id === 'gunner') G.battle.enemies.slice(0, 5).forEach(e => e.hp -= 100);
+    if (d.id === 'defender') G.buildings.wall.sections.N = 100;
+    if (d.id === 'medic') for(let k in G.buildings) if (G.buildings[k].hp) G.buildings[k].hp = G.buildings[k].mhp;
+    if (d.id === 'sniper') if (G.battle.enemies[0]) G.battle.enemies[0].hp = 0;
+    if (d.id === 'commander') G.battle.enemies.forEach(e => e.hp -= 50);
+    UI.toast(`${d.ability.toUpperCase()}!`);
+  }
+};
+
+const ResearchSys = {
+  start(id) {
+    if (G.buildings.work.level === 0) { UI.toast("Build Workshop!"); return; }
+    let r = RD[id]; let cost = r.cost;
+    if (G.res.food >= (cost.food||0) && G.res.metal >= (cost.metal||0) && G.res.ammo >= (cost.ammo||0)) {
+      G.res.food -= (cost.food||0); G.res.metal -= (cost.metal||0); G.res.ammo -= (cost.ammo||0);
+      G.research[id]++; Audio.upgrade(); UI.toast(`Research Complete: ${r.name}`); Res.draw(); UI.closeModal();
+    } else UI.toast("Not enough resources!");
+  }
+};
+
+const PrestigeSys = {
+  reset() {
+    if (G.day < 30) { UI.toast("Wait until Day 30!"); return; }
+    G.legacy += (G.day*0.1); G.res = { food: 2000, ammo: 1000, metal: 1500, credits: G.res.credits, rations: 0 };
+    G.gameTime = 0; G.day = 1;
+    for (let k in G.buildings) { G.buildings[k].level = (k === 'cc' || k === 'farm' || k === 'scrap') ? 1 : 0; G.buildings[k].timer = 0; }
+    G.research = { dmg: 0, prod: 0, wall: 0 }; G.heroes = [];
+    UI.showModal("NEW LEGACY", `Multiplier now: x${G.legacy.toFixed(1)}`); Res.draw(); Security.save();
+  }
+};
+
 const UI = {
   showBuildingModal(id) { const b = BD[id], s = G.buildings[id], c = Build.getUpgradeCost(id, s.level); document.getElementById('modal-overlay').style.display = 'flex'; document.getElementById('modal-content').innerHTML = `<div class="modal"><div class="modal-title">${b.name}</div><div style="font-size:11px;margin-bottom:10px;">HP: ${Math.floor(s.hp)}/${BD[id].mhp}<br>Cost: 🍖${c.food} ⚙️${c.metal} 🔫${c.ammo}<br>Wait: ${c.time}s${c.credits?`<br><span style="color:var(--accent-premium)">Permit: ${c.credits} 💎</span>`:''}</div><button class="btn" onclick="Build.upgrade('${id}')">${s.level===0?'CONSTRUCT':'UPGRADE'}</button>${s.hp<BD[id].mhp?`<button class="btn" onclick="Build.repair('${id}')">REPAIR (${Math.ceil((BD[id].mhp-s.hp)*0.5)}⚙️)</button>`:''}<button class="btn" onclick="UI.closeModal()">CLOSE</button></div>`; },
   showModal(t, h) { document.getElementById('modal-overlay').style.display = 'flex'; document.getElementById('modal-content').innerHTML = `<div class="modal"><div class="modal-title">${t}</div><div style="font-size:13px;text-align:center;margin-bottom:15px;">${h}</div><button class="btn" onclick="UI.closeModal()">OK</button></div>`; },
@@ -288,7 +373,7 @@ const Input = {
 };
 
 const canvas = document.getElementById('game-canvas'), ctx = canvas.getContext('2d'); canvas.width = 480; canvas.height = 480;
-function resize() { const w = document.getElementById('canvas-wrap'), s = Math.min(w.clientWidth, w.clientHeight)*0.95; canvas.style.width = s+'px'; canvas.style.height = s+'px'; }
+function resize() { const w = document.getElementById('canvas-wrap'); if(!w) return; const s = Math.min(w.clientWidth || 480, w.clientHeight || 480)*0.95; canvas.style.width = s+'px'; canvas.style.height = s+'px'; }
 window.addEventListener('resize', resize); resize();
 
 const Render = {
@@ -302,7 +387,7 @@ const Render = {
     ctx.fillStyle='#1a1008'; ctx.fillRect(20,50,440,80); ctx.strokeStyle='#c8921a'; ctx.strokeRect(20,50,440,80); ctx.fillStyle='#fff'; ctx.fillText('HERO RECRUITMENT', 240, 70); ctx.fillStyle='#3a1a0a'; ctx.fillRect(40,80,180,30); ctx.fillRect(260,80,180,30); ctx.fillStyle='#fff'; ctx.font='10px monospace'; ctx.fillText('PULL x1 (100💎)', 130, 100); ctx.fillText('PULL x10 (900💎)', 350, 100);
     ctx.fillStyle='#1a1008'; ctx.fillRect(20,140,440,80); ctx.strokeStyle='#ffd700'; ctx.strokeRect(20,140,440,80); ctx.fillStyle='#fff'; ctx.fillText('VALUE BUNDLES', 240, 160); ctx.fillStyle='#3a1a0a'; ctx.fillRect(40,170,180,35); ctx.fillRect(260,170,180,35); ctx.fillStyle='#fff'; ctx.font='8px monospace'; ctx.fillText('BEGINNER ($1.99)', 130, 190); ctx.fillText('WAR CHEST ($4.99)', 350, 190);
     ctx.fillStyle='#3a1a0a'; ctx.fillRect(40,210,400,25); ctx.fillStyle='#fff'; ctx.fillText('GOD MODE ($19.99)', 240, 225);
-    ctx.fillStyle='#1a1008'; ctx.fillRect(20,240,440,50); ctx.strokeStyle='#a0a'; ctx.strokeRect(20,240,440,50); ctx.fillStyle='#fff'; ctx.fillText('UNLOCK NEON SKIN (500💎)', 240, 270);
+    ctx.fillStyle='#1a1008'; ctx.fillRect(20,240,440,50); ctx.strokeStyle='#a0a'; ctx.strokeRect(20,240,440,50); ctx.fillStyle='#fff'; ctx.fillText('UNLOCK NEON SKIN (500💎)', 240, 260);
     ctx.fillStyle='#c8221a'; ctx.fillRect(140,300,200,30); ctx.fillStyle='#fff'; ctx.fillText('TRIGGER HORDE', 240, 320);
     ctx.fillStyle='#333'; ctx.fillRect(140,340,200,30); ctx.fillStyle='#888'; ctx.fillText(G.isSuper?'GENERATE ICONS':'SET ACCOUNT', 240, 360);
     ctx.fillStyle='rgba(255,255,255,0.1)'; ctx.fillRect(10, 430, 460, 40); ctx.fillStyle='#888'; ctx.textAlign='left'; ctx.font='8px monospace'; G.chat.forEach((c,i)=>ctx.fillText(`${c.user}: ${c.msg}`, 15, 440+i*10));
@@ -312,7 +397,7 @@ const Render = {
 let lastTime = 0;
 function loop(t) { requestAnimationFrame(loop); let dt = (t-lastTime)/1000; if (dt>0.1) dt=0.1; lastTime=t; Res.update(dt); if (G.inBattle) BattleSys.update(dt); WorldSys.update(dt); Build.update(dt); if(Math.random()<0.001) EventSys.trigger(); if (G.view==='base') Render.base(); else if (G.view==='map') Render.map(); else if (G.view==='heroes') Render.heroes(); else if (G.view==='shop') Render.shop(); else if (G.view==='battle') Render.battle(); else if (G.view==='research') Render.research(); }
 document.querySelectorAll('.nav-btn').forEach(btn => btn.addEventListener('click', () => { Audio.ui(); document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active')); btn.classList.add('active'); G.view = btn.dataset.view; }));
-if ('serviceWorker' in navigator) { window.addEventListener('load', () => { navigator.serviceWorker.register('./sw.js').catch(err => { console.log('SW failed: ', err); }); }); }
+if ('serviceWorker' in navigator) { window.addEventListener('load', () => { navigator.serviceWorker.register('./sw.js').catch(e => {}); }); }
 WorldSys.init(); Input.init(); BillingSys.init(); requestAnimationFrame(loop);
 </script>
 </body>
